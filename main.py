@@ -20,18 +20,17 @@ class MainUi(QWidget):
         super(MainUi, self).__init__()
         self.ui = Ui_Dialog()
         self.ui.setupUi(self)
-        self.RawDataF, self.BiasF, self.SFF = 0, 0, 0
-        self.RawSF, self.RawBias = 0, 0
-        self.BiasX, self.BiasY, self.BiasZ = 0, 0, 0
-        self.SFX, self.SFY, self.SFZ = 0, 0, 0
-        self.mapFunc = {self.ui.qtSBiasX: self.BiasX,
-                        self.ui.qtSBiasY: self.BiasY,
-                        self.ui.qtSBiasZ: self.BiasZ,
-                        self.ui.qtSSFX: self.SFX,
-                        self.ui.qtSSFY: self.SFY,
-                        self.ui.qtSSFZ: self.SFZ,
-                        self.ui.qtSGyroBias: self.RawBias,
-                        self.ui.qtSGyroSF: self.RawSF}
+        self.RawDataF, self.BiasF, self.SFF, self.recF = 0, 0, 0, 0
+        self.RawSF = self.ui.qtSGyroSF.value()
+        self.BiasX, self.BiasY, self.BiasZ = 0.0, 0.0, 0.0
+        self.SFX, self.SFY, self.SFZ = 1.0, 1.0, 1.0
+        self.mapFunc = [self.ui.qtSBiasX,
+                        self.ui.qtSBiasY,
+                        self.ui.qtSBiasZ,
+                        self.ui.qtSSFX,
+                        self.ui.qtSSFY,
+                        self.ui.qtSSFZ,
+                        self.ui.qtSGyroSF]
         self.ComSelect(0, True)
         self.iStream = 0
         self.data = [[] for i in range(8)]
@@ -48,24 +47,37 @@ class MainUi(QWidget):
         self.ui.qtCRawData.clicked.connect(self.changed)
         self.ui.qtCBias.clicked.connect(self.changed)
         self.ui.qtCSF.clicked.connect(self.changed)
-        [x.valueChanged.connect(self.valueChane) for x in self.mapFunc.keys()]
+        self.ui.qtCRecorde.clicked.connect(self.changed)
+        [x.valueChanged.connect(self.valueChane) for x in self.mapFunc]
 
     @pyqtSlot(float)
     def valueChane(self, val):
-        self.mapFunc[self.sender()] = val
-        print([x for x in self.mapFunc.values()])
+        s = self.sender()
+        if s == self.ui.qtSBiasX:
+            self.BiasX = val
+        elif s == self.ui.qtSBiasY:
+            self.BiasY = val
+        elif s == self.ui.qtSBiasZ:
+            self.BiasZ = val
+        elif s == self.ui.qtSSFX:
+            self.SFX = val
+        elif s == self.ui.qtSSFY:
+            self.SFY = val
+        elif s == self.ui.qtSSFZ:
+            self.SFZ = val
+        elif s == self.ui.qtSGyroSF:
+            self.RawSF = val
 
     @pyqtSlot()
     def changed(self):
         if self.ui.qtCRawData == self.sender():
             self.RawDataF = not self.RawDataF
-            print(self.RawDataF)
         elif self.ui.qtCBias == self.sender():
             self.BiasF = not self.BiasF
-            print(self.BiasF)
         elif self.ui.qtCSF == self.sender():
             self.SFF = not self.SFF
-            print(self.SFF)
+        elif self.ui.qtCRecorde == self.sender():
+            self.recF = not self.recF
 
     @pyqtSlot(int)
     def ComSelect(self, i, first_time=False):
@@ -113,9 +125,20 @@ class MainUi(QWidget):
                 iter(self.streamData)
                 self.timer = QTimer()
                 self.timer.timeout.connect(self.graphupdate)
-                self.timer.start()
                 self.i = 0
                 self.__x = []
+                if self.recF:
+                    if self.ui.qtBrowse.text() == '':
+                        self.file_select()
+                        if self.ui.qtBrowse.text() == '':
+                            QMessageBox.warning(self,
+                                                'No file',
+                                                'No file selected')
+                            self.stremingData()
+                            return 0
+                    #self.fileName = open(self.ui.qtBrowse.text(), 'w')
+                    #self.fileName.write('time, accx, accy, accz, temp, gyorx, gyroy, gyroz\n')
+                self.timer.start(1)
             elif self.ui.qtBStream.text() == 'Stop':
                 self.ui.qtBStream.setText('Stream')
                 self.ui.qtCRecorde.setEnabled(True)
@@ -126,27 +149,51 @@ class MainUi(QWidget):
     @pyqtSlot()
     def graphupdate(self):
         data = next(self.streamData)
+        print(data)
         if data:
-            if len(self.data[0]) >= 2000:
+            if self.RawDataF:
+                data[5] /= self.RawSF
+                data[6] /= self.RawSF
+                data[7] /= self.RawSF
+            if self.SFF:
+                data[5] *= self.SFX
+                data[6] *= self.SFY
+                data[7] *= self.SFZ
+            if self.BiasF:
+                data[5] += self.BiasX
+                data[6] += self.BiasY
+                data[7] += self.BiasZ
+            if len(self.data[0]) >= 500:
                 _ = [self.data[i].pop(0) for i in range(len(self.data))]
                 _ = self.__x.pop(0)
                 self.__x.append(self.__x[-1] + 1)
             else:
                 self.__x.append(len(self.__x))
-            if self.RawDataF:
-                pass
-            if self.BiasF:
-                pass
-            if self.SFF:
-                pass
             [self.data[i].append(data[i]) for i in range(8)]
-            if self.i > 15:
+            # sdata = [str(x) for x in data]
+            # self.fileName.write(','.join(sdata))
+            if self.i > 7:
                 self.ui.plotx.setData(x=self.__x, y=self.data[5])
                 self.ui.ploty.setData(x=self.__x, y=self.data[6])
                 self.ui.plotz.setData(x=self.__x, y=self.data[7])
                 self.i = 0
+                avgX = avg(self.data[5])
+                avgY = avg(self.data[6])
+                avgZ = avg(self.data[7])
+                title = '{:.2} {:.2} {:.2}'.format(avgX, avgY, avgZ)
+                self.ui.plot.setTitle(title)
             else:
                 self.i += 1
+
+    def closeEvent(self, event):
+        if self.ui.qtBStream.text() == 'Stop':
+            self.timer.stop()
+            self.streamData.stop()
+        super(MainUi, self).closeEvent(event)
+
+
+def avg(x):
+    return sum(x)*1.0/len(x)
 
 
 def main():

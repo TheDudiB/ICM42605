@@ -35,7 +35,6 @@ class getValue():
 
     def __exit__(self, exception_type, exception_value, traceback):
         if self.m_processing:
-            print('sending end')
             self.stop_flag.value = 0  # Turn off process
         if exception_type is None:
             if self.ser:
@@ -86,7 +85,6 @@ def m_serial(com, flag, pipe):
     ser = Serial(com, baudrate=921600, timeout=1)
     ser.reset_input_buffer()
     ser.reset_output_buffer()
-    print('loop', flag.value)
     while flag.value:
         read = ser.readline()
         while '[I]' != read[:3] or '\n' != read[-1]:
@@ -95,16 +93,15 @@ def m_serial(com, flag, pipe):
         try:
             data = [int(x) for x in data.split(',')]
         except ValueError:
-            print('data')
+            pass
         else:
             pipe.send(data)
-    print('main loop exit')
     pipe.close()
 
 
 if __name__ == '__main__':
     with getValue('/dev/ttyUSB0') as val, open('out.csv', 'w') as f:
         f.write('time, accx, accy, accz, temp, gyorx, gyroy, gyroz\n')
+        print(next(val))
         for i in range(10000):
             f.write(','.join([str(x) for x in next(val)])+'\n')
-        print('done')
