@@ -1,11 +1,12 @@
-from serial import Serial
+from serial import Serial, SerialException
 from multiprocessing import Value, Process, Pipe
 from ctypes import c_bool
+from time import sleep
 
 
-class getValue():
+class GetValue():
     def __init__(self, com, dic=False, m_processing=True):
-        """getValue(com, dic=False, m_processing=True)
+        """GetValue(com, dic=False, m_processing=True)
         Reads the ICM42605 raw regesters
         com: Com port to comunicate with the eval board
         dic: If true return values as dictenary
@@ -36,6 +37,8 @@ class getValue():
     def __exit__(self, exception_type, exception_value, traceback):
         if self.m_processing:
             self.stop_flag.value = 0  # Turn off process
+            sleep(0.01)
+            self.p_con.close()
         if exception_type is None:
             if self.ser:
                 self.ser.close()
@@ -51,7 +54,10 @@ class getValue():
 
     def __next__(self):
         if self.m_processing:
-            data = self.p_con.recv()
+            if self.p_con.poll(0):
+                data = self.p_con.recv()
+            else:
+                data = None
         else:
             read = self.ser.readline()
             while '[I]' != read[:3] or '\n' != read[-1]:
@@ -78,30 +84,56 @@ class getValue():
     def stop(self):
         self.__exit__(None, None, None)
 
+    def data_ready(self):
+        if self.p_con.poll(0):
+            return True
+        else:
+            return False
+
+    def read_line(self):
+        return self.__next__()
+
     next = __next__
 
 
 def m_serial(com, flag, pipe):
-    ser = Serial(com, baudrate=921600, timeout=1)
-    ser.reset_input_buffer()
-    ser.reset_output_buffer()
-    while flag.value:
-        read = ser.readline()
-        while '[I]' != read[:3] or '\n' != read[-1]:
+    with Serial(com, baudrate=921600, timeout=1) as ser:
+        ser.reset_input_buffer()
+        ser.reset_output_buffer()
+        print('clear buffer')
+        while flag.value:
             read = ser.readline()
-        data = read[3:].strip().replace(':', ',')
-        try:
-            data = [int(x) for x in data.split(',')]
-        except ValueError:
-            pass
-        else:
-            pipe.send(data)
+            while '[I]' != read[:3] or '\n' != read[-1]:
+                read = ser.readline()
+            data = read[3:].strip().replace(':', ',')
+            try:
+                data = [int(x) for x in data.split(',')]
+            except ValueError:
+                pass
+            else:
+                if len(data) == 9:
+                    pipe.send(data)
     pipe.close()
 
 
+def test_con(com):
+    try:
+        with Serial(com, baudrate=921600, timeout=1) as ser:
+            ser.reset_input_buffer()
+            _ = ser.readline()
+            read = ser.readline()
+            if read:
+                return True
+            else:
+                return False
+    except SerialException:
+        return False
+
 if __name__ == '__main__':
-    with getValue('/dev/ttyUSB0') as val, open('out.csv', 'w') as f:
+    with GetValue('/dev/ttyUSB0') as val, open('out.csv', 'w') as f:
         f.write('time, accx, accy, accz, temp, gyorx, gyroy, gyroz\n')
         print(next(val))
         for i in range(10000):
-            f.write(','.join([str(x) for x in next(val)])+'\n')
+            a = next(val)
+            if a:
+                f.write(','.join([str(x) for x in a])+'\n')
